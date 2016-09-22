@@ -60,12 +60,10 @@
 
     function allDatasets() {
       var endpoint = gosparql.endpoint
-      var sparql = "SELECT DISTINCT ?value ?label WHERE {?value a <http://purl.org/linked-data/cube#DataSet>"
-                    + "OPTIONAL{?value rdfs:comment|rdfs:label ?label.}"
-                    + "FILTER (lang(?label) = 'en')}";
+      var sparql = gosparql.getDatasets()
       gosparql.query(endpoint, sparql, function(json){
-      component.htmlselect(json, {"selector": "#datasets"}, "getDataCubeDimensions(this.value)");
-      window.setTimeout(getDataCubeDimensions(selectedDataset()), 500);
+        component.htmlselect(json, {"selector": "#datasets"}, "getDataCubeDimensions(this.value)");
+        window.setTimeout(getDataCubeDimensions(selectedDataset()), 500);
       })
     }
 

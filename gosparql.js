@@ -29,7 +29,7 @@ gosparql.getDatasets= function(){
     var sparql = "SELECT DISTINCT ?value ?label WHERE {?value a <http://purl.org/linked-data/cube#DataSet>"
                 + "OPTIONAL{?value rdfs:comment|rdfs:label ?label.}"
                 + "FILTER (lang(?label) = 'en')}"
-  return query;
+  return sparql;
 }
 
 gosparql.getCubeSliceGraph= function(dataCubeURI) {
