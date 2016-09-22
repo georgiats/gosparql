@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <link rel="stylesheet" type="text/css" href="https://maxcdn.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"/>
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.3/leaflet.css"/>
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+    <script src="https://d3js.org/d3-request.v1.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.13.1/lodash.min.js"></script>
+    <script src="https://unpkg.com/leaflet@0.7.3/dist/leaflet.js"></script>
+    <script src="https://rawgit.com/simogeo/geostats/master/lib/geostats.js"></script>
+    <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="https://open.mapquestapi.com/sdk/leaflet/v1.0/mq-map.js?key=Fmjtd%7Cluur2d0znu%2Cbl%3Do5-9a82dw"></script>
+    <script src="https://open.mapquestapi.com/sdk/leaflet/v1.0/mq-geocoding.js?key=Fmjtd%7Cluur2d0znu%2Cbl%3Do5-9a82dw"></script>
+    <script src="gosparql.js"></script>
+    <script src="components.js"></script>
+    <style>
+      #map {
+        height: 800px;
+        width: 700px;
+      }
+      .leaflet-div-icon {
+        background-color: transparent;
+        border: 0px solid white;
+      }
+      .leaflet-div-icon h2,
+      .leaflet-div-icon h4{
+        display: block;
+        text-align: center;
+        margin: 0px;
+        margin-left: -60px;
+        width: 120px;
+      }
+    </style>
+
+    <script>
+    /* Tools */
+
+    function filterLanguage(results, ignoreLang) {
+      ignoreLang = ignoreLang || true
+
+      if (ignoreLang) {
+        results =  _.filter(results, function(o) {
+          if (o.hasOwnProperty("label")) {
+            return o.label.hasOwnProperty("xml:lang")
+          } else {
+            return false
+          };
+        });
+      };
+
+      return results;
+    }
+
+    function init() {
+      d3.select("#query").on('click',getObservationValues);
+      disableQueryBtn(true);
+      allDatasets();
+    }
+
+    function allDatasets() {
+      var endpoint = gosparql.endpoint
+      var sparql = "SELECT DISTINCT ?value ?label WHERE {?value a <http://purl.org/linked-data/cube#DataSet>"
+                    + "OPTIONAL{?value rdfs:comment|rdfs:label ?label.}"
+                    + "FILTER (lang(?label) = 'en')}";
+      gosparql.query(endpoint, sparql, function(json){
+      component.htmlselect(json, {"selector": "#datasets"}, "getDataCubeDimensions(this.value)");
+      window.setTimeout(getDataCubeDimensions(selectedDataset()), 500);
+      })
+    }
+
+    function selectedDataset() {
+      return d3.select("#datasets select").node().value
+    }
+
+    function selectedMeasure() {
+      return d3.select("#measure select").node().value
+    }
+
+    function selectedColsDim() {
+      return d3.select("#cols_dim select").node().value
+    }
+
+    function selectedRowsDim() {
+      return d3.select("#rows_dim select").node().value
+    }
+
+    function selectedRowsDimLabel() {
+      d = d3.select("#rows_dim select").node()
+      return d.options[d.selectedIndex].label
+    }
+
+    function selectedFixedDim() {
+      return d3.select("#fixed_dim select").node().value
+    }
+
+    function selectedFixedDimValue() {
+      return d3.select("#fixed_dim_values select").node().value
+    }
+
+    function selectedRender() {
+      return d3.select("#render select").node().value
+    }
+
+    function adjustDimesionsSelection(e) {
+
+      // console.dir(e.parentElement.parentElement.id);
+      resetResultsView()
+
+      var elementId = e.parentElement.parentElement.id
+      var elementIndex = e.selectedIndex
+
+      var optionValues = d3.select("#cols_dim select").selectAll("option")[0]
+      var areaOption = _.findIndex(optionValues, function(o) { return (o.value == "http://purl.org/linked-data/sdmx#refArea") })
+      if (areaOption > 0 && "rows_dim" != elementId) {
+        d3.select("#rows_dim select").node().options[areaOption].selected = true
+      }
+
+      var colsIndex = d3.select("#cols_dim select").node().selectedIndex
+      var rowsIndex = d3.select("#rows_dim select").node().selectedIndex
+      // var fixedIndex = d3.select("#fixed_dim select").node().selectedIndex
+
+      if (colsIndex == rowsIndex) {
+        if (elementId == "cols_dim") {
+          if (elementIndex > 0) {
+            d3.select("#rows_dim select").node().options[0].selected = true
+          } else {
+            d3.select("#rows_dim select").node().options[1].selected = true
+          }
+        } else {
+          if (elementIndex > 0) {
+            d3.select("#cols_dim select").node().options[0].selected = true
+          } else {
+            d3.select("#cols_dim select").node().options[1].selected = true
+          }
+        }
+      }
+
+      getDimensionValues()
+    }
+
+    function disableQueryBtn(bool) {
+      var btn = d3.select("#query")
+      btn.node().disabled = bool
+    }
+
+    function getDataCubeDimensions(uri) {
+      var endpoint = gosparql.endpoint
+      var sparql = gosparql.getDataCubeDimensions(uri)
+      gosparql.query(endpoint, sparql, renderDimensions)
+
+      var sparql = gosparql.getDataCubeMeasure(uri)
+      gosparql.query(endpoint, sparql, renderMeasures)
+    }
+
+    function renderDimensions(json) {
+      var head = json.head.vars
+      var data = json.results.bindings
+      component.htmlselect(json, {"selector": "#cols_dim"}, "adjustDimesionsSelection(d3.select(this).node())")
+      component.htmlselect(json, {"selector": "#rows_dim"}, "adjustDimesionsSelection(d3.select(this).node())")
+      component.htmlselect(json, {"selector": "#fixed_dim"}, "getDimensionValues()")
+
+      adjustDimesionsSelection(d3.select("#cols_dim select").node())
+
+    }
+
+    function renderMeasures(json) {
+      var head = json.head.vars
+      var data = json.results.bindings
+      component.htmlselect(json, {"selector": "#measure"})
+    }
+
+    function getDimensionValues(dataset, uri) {
+      disableQueryBtn(true)
+      uri = selectedFixedDim()
+      var endpoint = gosparql.endpoint
+      var sparql = gosparql.getDimensionValues(selectedDataset(), uri)
+      gosparql.query(endpoint, sparql, renderDimensionValues)
+    }
+
+    function renderDimensionValues(json) {
+      disableQueryBtn(false)
+      resetResultsView()
+      var config = {"selector": "#fixed_dim_values"}
+      component.htmlselect(json, config, "getObservationValues()")
+    }
+
+    function getObservationValues() {
+      var endpoint = gosparql.endpoint
+      var sparql = gosparql.getObservationValues(selectedDataset(),
+                                                 selectedMeasure(),
+                                                 selectedColsDim(),
+                                                 selectedRowsDim(),
+                                                 selectedFixedDim(),
+                                                 selectedFixedDimValue()
+                                               )
+      d3.select("#sparql").text(sparql)
+      disableQueryBtn(true)
+      gosparql.query(endpoint, sparql, renderObservationValues)
+    }
+
+    function renderObservationValues(json) {
+      var config = {"selector": "#result"}
+      if (d3.select("div.d3sparql.filters")[0][0] == null && (selectedRender() == "barchart" || selectedRender() == "piechart")) {
+        component.htmlselectlist(json, {"selector": "#filters"}, "getObservationValues()")
+        var label = d3.select("#cols_dim select").node().selectedOptions[0].label
+        d3.select("#filters").insert("h5",":first-child").text(label)
+        d3.select("#filters select").node().options[0].selected = true
+      };
+
+      if (selectedRender() == "barchart") {
+        component.barchart(json, config)
+      } else if (selectedRender() == "piechart") {
+        component.piechart(json, config)
+      } else if (selectedRender() == "map") {
+        if (map != undefined) {
+          var mapContainerParent = map.parentNode;
+          mapContainerParent.removeChild(map);
+
+          var newMapContainer = document.createElement('div');
+          newMapContainer.setAttribute("id", "map");
+          mapContainerParent.appendChild(newMapContainer);
+        }
+        component.htmlmap(json)
+      } else {
+        component.htmltable(json, {"selector": "#table-result"})
+      }
+      disableQueryBtn(false)
+    }
+
+    function resetResultsView() {
+      d3.select("#filters").html("")
+      d3.select("#result").html("")
+      d3.select("#table-result").html("")
+      d3.select("#map").html("").attr("class", "")
+      d3.select("#query-alert").html("").attr("class", "hidden")
+    }
+
+    </script>
+  </head>
+  <body onLoad="init()">
+    <div class="container">
+      <div class="row">
+        <div class="span4">
+          <h5>Datasets</h5>
+          <div id="datasets"></div>
+        </div>
+        <div class="span4">
+          <h5>View</h5>
+          <div id="render">
+            <select onchange="resetResultsView()">
+              <option value="table">Table</option>
+              <option value="barchart">Bar Chart</option>
+              <option value="piechart">Pie Chart</option>
+              <option value="map">Map</option>
+            </select>
+          </div>
+        </div>
+        <div class="span4 hidden">
+          <h5>Query</h5>
+          <textarea id="sparql" rows="1" cols="4"></textarea>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span4">
+          <h5>First Dimension</h5>
+          <div id="rows_dim"></div>
+        </div>
+        <div class="span4">
+          <h5>Fixed Dimension</h5>
+          <div id="fixed_dim"></div>
+        </div>
+        <div class="span4">
+          <h5>Measures</h5>
+          <div id="measure"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span4">
+          <h5>Second Dimension</h5>
+          <div id="cols_dim"></div>
+        </div>
+        <div class="span4">
+          <h5>Dimension Values</h5>
+          <div id="fixed_dim_values"></div>
+        </div>
+        <div class="span4">
+          <h5>Actions</h5>
+          <button id="query" type="button" class="btn btn-info">Query</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span12">
+          <div id="query-alert" class="hidden"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span2">
+          <div id="filters"></div>
+        </div>
+        <div class="span10">
+          <div id="result"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span12">
+          <div id="table-result"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="span12">
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+    <style>
+      #filters select {
+        border-width: 1px;
+      }
+
+      #filters select option{
+        padding: 0.5em;
+        border-bottom: : 1px solid gray;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus,
+      button:focus {
+          outline: none;
+      }
+    </style>
+  </body>
+</html>
